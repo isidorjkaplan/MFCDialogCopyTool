@@ -16,11 +16,15 @@ def main():
     if (args.dest_h is not None):
         print("\nSymbols enabled. Processing symbols")
         src_symbols = extract_section_symbols(dialogbox_lines, margins_lines, dlginit_lines, layout_lines) #get all the new symbols to be added for the dialog
+        src_symbols.add(args.dlg) #the symbol for the actual dlg itself has to be added
+        
         dest_symbols = extract_all_resources(args.dest_h) #get all existing resources in the target for pasting resource file
 
         new_symbols = extract_new_symbols(src_symbols, dest_symbols)
 
         inject_new_symbols(args.dest_h, new_symbols)
+
+        print("WARNING You MUST run ResOrg to renumber the symbols so they have valid IDs BEFORE opening in Visual Studio or it will not be able to parse the file!")
     if (args.dest_rc is not None):
         inject_new_dialog(args.dest_rc, args.dlg, dialogbox_lines, margins_lines, dlginit_lines, layout_lines)
     
@@ -107,7 +111,7 @@ def extract_sections(args):
 
     if num_found < 4:
         print("Could not find all the required sections for the dialog in the source! Are you sure this dialog exists in the source?")
-    assert num_found == 4
+    assert num_found >=3
     return (dialogbox_lines, margins_lines, dlginit_lines, layout_lines)
 
 def extract_section_symbols(*sections):
@@ -232,10 +236,11 @@ def inject_new_dialog(rc_file, dlg, dialogbox_lines, margins_lines, dlginit_line
                 contents.extend(layout_lines)
                 print("Pasted layout")
                 continue
-    
-    if num_found < 4:
+    if (num_found < 4):
         print("Could not locate a dialog with the same IDD in the target. You must create an empty dialog in the target which can be used for overwriting with the copy/paste")
-    assert num_found == 4
+    if (num_found == 3):
+        print("Could only locate 3/4 of the pasting sections. This could be beacuse some dialogs do not possess a DLGINIT section. ")
+    assert num_found >=3
 
     with open(rc_file, 'w') as f:
         for line in contents:
