@@ -7,16 +7,22 @@ NEW_SYMBOL_VALUE = -1
 def main():
     args = get_args()
     
+    assert (args.dest_h is not None ) or (args.dest_rc is not None) #You must have at least one active operation
+
     #print(dest_resource_names) #works
 
     (dialogbox_lines, margins_lines, dlginit_lines, layout_lines) = extract_sections(args)
     
-    src_symbols = extract_section_symbols(dialogbox_lines, margins_lines, dlginit_lines, layout_lines) #get all the new symbols to be added for the dialog
-    dest_symbols = extract_all_resources(args.dest_h) #get all existing resources in the target for pasting resource file
+    if (args.dest_h is not None):
+        print("\nSymbols enabled. Processing symbols")
+        src_symbols = extract_section_symbols(dialogbox_lines, margins_lines, dlginit_lines, layout_lines) #get all the new symbols to be added for the dialog
+        dest_symbols = extract_all_resources(args.dest_h) #get all existing resources in the target for pasting resource file
 
-    new_symbols = extract_new_symbols(src_symbols, dest_symbols)
+        new_symbols = extract_new_symbols(src_symbols, dest_symbols)
 
-    inject_new_symbols(args.dest_h, new_symbols)
+        inject_new_symbols(args.dest_h, new_symbols)
+    if (args.dest_rc is not None):
+        inject_new_dialog(args.dest_rc, args.dlg, dialogbox_lines, margins_lines, dlginit_lines, layout_lines)
     
 
 def get_args():
@@ -24,15 +30,14 @@ def get_args():
     #parser.add_argument("src_h", type=str)
     parser.add_argument("dlg", type=str, help="Enter the ID of the dialog (ex: IDD_JOBCONTROL)")
     parser.add_argument("src_rc", type=str, help="Enter the source .rc file")
-    parser.add_argument("dest_h", type=str, help="Enter the destination resource.h file")
-    parser.add_argument("dest_rc", type=str, help="Enter the destination .rc file")
+    parser.add_argument("--dest_h", type=str, default=None, help="Enter the destination resource.h file. Leave blank to not copy over resources.")
+    parser.add_argument("--dest_rc", type=str, default=None, help="Enter the destination .rc file. Leave blank to noy copy over the dialog (only resources)")
     return parser.parse_args()
 
 #For extracting from the source file
 
 def extract_sections(args):
-
-
+    print("\nAttempting to extract dialog")
     #define modes
     NONE = 0
     DIALOGBOX = 1
@@ -49,6 +54,7 @@ def extract_sections(args):
     dlginit_lines = []
     layout_lines = []
 
+    num_found = 0
     mode = NONE
     src_rc_file = open(args.src_rc, 'r')
     for raw_line in src_rc_file:
@@ -71,6 +77,8 @@ def extract_sections(args):
             elif vals[0] == args.dlg and vals[1] == "AFX_DIALOG_LAYOUT":
                 mode = LAYOUT
                 #print("Starting layout")
+            if (mode != NONE):
+                num_found = num_found+1
 
         if (mode == DIALOGBOX):
             dialogbox_lines.append(line) #add line to the dialog box
@@ -96,6 +104,10 @@ def extract_sections(args):
                 mode = NONE
                 print("Found layout")
                 continue
+
+    if num_found < 4:
+        print("Could not find all the required sections for the dialog in the source! Are you sure this dialog exists in the source?")
+    assert num_found == 4
     return (dialogbox_lines, margins_lines, dlginit_lines, layout_lines)
 
 def extract_section_symbols(*sections):
@@ -137,7 +149,6 @@ def extract_new_symbols(src_symbols, dest_symbols):
     return new_symbols
 
 def inject_new_symbols(resource_file, symbols):
-
     with open(resource_file, 'r') as f:
         contents = f.readlines()
     
@@ -149,6 +160,87 @@ def inject_new_symbols(resource_file, symbols):
             break
 
     print("\nInjecting symbols at line: " + str(first_def_line) + " with value = " + str(NEW_SYMBOL_VALUE))
+    for symbol in symbols:
+        contents.insert(first_def_line, "%s %s %d\n" % (DEFINE, symbol, NEW_SYMBOL_VALUE))
+    
+    with open(resource_file, 'w') as f:
+        contents = "".join(contents)
+        f.write(contents)
+
+def inject_new_dialog(rc_file, dlg, dialogbox_lines, margins_lines, dlginit_lines, layout_lines):
+    print("\nAttempting to inject dialog")
+    NONE = 0
+    DIALOGBOX = 1
+    MARGINS = 2
+    DLGINIT = 3
+    LAYOUT = 4
+
+    #other constants
+    MARGIN_TAB = "    "
+    mode = NONE
+    contents = []
+    num_found = 0
+
+
+    for raw_line in open(rc_file, 'r'):
+        line = raw_line
+        if (raw_line[-1] == '\n'):
+            line = raw_line[:-1]
+        #print(line)
+
+        if (mode == NONE):
+            vals = line.split(' ')
+            if vals[0] == dlg and vals[1] == "DIALOGEX":
+                mode = DIALOGBOX #note no break, it will run the next line
+                #print("Starting Dlgbox")
+            elif line == (MARGIN_TAB + dlg + ", DIALOG"):
+                mode = MARGINS
+                #print("Starting margins")
+            elif vals[0] == dlg and vals[1] == "DLGINIT":
+                mode = DLGINIT
+                #print("Starting dlginit")
+            elif vals[0] == dlg and vals[1] == "AFX_DIALOG_LAYOUT":
+                mode = LAYOUT
+                #print("Starting layout")
+            if (mode != NONE):
+                num_found = num_found+1
+
+        if (mode == NONE):
+            contents.append(line) #If it is not part of this dialog add back in without modifying it
+
+        if (mode == DIALOGBOX):
+            if line == "END": #note this includes indentation, it cannot be indented so that it is not an internal end, must be bottom level end
+                mode = NONE
+                contents.extend(dialogbox_lines)
+                print("Pasted Dialogbox")
+                continue
+        elif (mode == MARGINS):
+            if line == MARGIN_TAB + "END":
+                mode = NONE
+                contents.extend(margins_lines)
+                print("Pasted margins")
+                continue
+        elif (mode == DLGINIT):
+            if (line == "END"):
+                mode = NONE
+                contents.extend(dlginit_lines)
+                print("Pasted dlginit")
+                continue
+        elif (mode == LAYOUT):
+            if (line == "END"):
+                mode = NONE
+                contents.extend(layout_lines)
+                print("Pasted layout")
+                continue
+    
+    if num_found < 4:
+        print("Could not locate a dialog with the same IDD in the target. You must create an empty dialog in the target which can be used for overwriting with the copy/paste")
+    assert num_found == 4
+
+    with open(rc_file, 'w') as f:
+        for line in contents:
+            f.write(line + "\n")
+
 
 
 if __name__ == "__main__":
