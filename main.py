@@ -14,19 +14,22 @@ def main():
     (dialogbox_lines, margins_lines, dlginit_lines, layout_lines) = extract_sections(args)
     
     if (args.dest_h is not None):
-        print("\nSymbols enabled. Processing symbols")
         src_symbols = extract_section_symbols(dialogbox_lines, margins_lines, dlginit_lines, layout_lines) #get all the new symbols to be added for the dialog
         src_symbols.add(args.dlg) #the symbol for the actual dlg itself has to be added
         
         dest_symbols = extract_all_resources(args.dest_h) #get all existing resources in the target for pasting resource file
 
         new_symbols = extract_new_symbols(src_symbols, dest_symbols)
+        if len(new_symbols) > 0:
+            inject_new_symbols(args.dest_h, new_symbols)
+            print("WARNING You MUST run ResOrg to renumber the symbols so they have valid IDs BEFORE opening in Visual Studio or it will not be able to parse the file!")
+    else:
+        print("Skipping inserting symbols since no resource.h file specified. The inserted dialog will not have valid symbols and may not work!")
 
-        inject_new_symbols(args.dest_h, new_symbols)
-
-        print("WARNING You MUST run ResOrg to renumber the symbols so they have valid IDs BEFORE opening in Visual Studio or it will not be able to parse the file!")
     if (args.dest_rc is not None):
         inject_new_dialog(args.dest_rc, args.dlg, dialogbox_lines, margins_lines, dlginit_lines, layout_lines)
+    else:
+        print("Skipping inserting dialog. Only symbols will be copied over.")
     
 
 def get_args():
@@ -58,6 +61,7 @@ def extract_sections(args):
     dlginit_lines = []
     layout_lines = []
 
+    found_dlginit = False
     num_found = 0
     mode = NONE
     src_rc_file = open(args.src_rc, 'r')
@@ -77,6 +81,7 @@ def extract_sections(args):
                 #print("Starting margins")
             elif vals[0] == args.dlg and vals[1] == "DLGINIT":
                 mode = DLGINIT
+                found_dlginit = True
                 #print("Starting dlginit")
             elif vals[0] == args.dlg and vals[1] == "AFX_DIALOG_LAYOUT":
                 mode = LAYOUT
@@ -109,9 +114,10 @@ def extract_sections(args):
                 print("Found layout")
                 continue
 
-    if num_found < 4:
-        print("Could not find all the required sections for the dialog in the source! Are you sure this dialog exists in the source?")
-    assert num_found >=3
+    assert_val = num_found == 4 or (num_found == 3 and not found_dlginit)
+    if (not assert_val):
+        print("Could not locate all required sections in source file for the dialog! Ensure the target dialog actually exists! Aborting program!")
+    assert assert_val
     return (dialogbox_lines, margins_lines, dlginit_lines, layout_lines)
 
 def extract_section_symbols(*sections):
@@ -185,6 +191,8 @@ def inject_new_dialog(rc_file, dlg, dialogbox_lines, margins_lines, dlginit_line
     contents = []
     num_found = 0
 
+    found_dlginit = False
+
 
     for raw_line in open(rc_file, 'r'):
         line = raw_line
@@ -202,6 +210,7 @@ def inject_new_dialog(rc_file, dlg, dialogbox_lines, margins_lines, dlginit_line
                 #print("Starting margins")
             elif vals[0] == dlg and vals[1] == "DLGINIT":
                 mode = DLGINIT
+                found_dlginit = True
                 #print("Starting dlginit")
             elif vals[0] == dlg and vals[1] == "AFX_DIALOG_LAYOUT":
                 mode = LAYOUT
@@ -236,11 +245,12 @@ def inject_new_dialog(rc_file, dlg, dialogbox_lines, margins_lines, dlginit_line
                 contents.extend(layout_lines)
                 print("Pasted layout")
                 continue
-    if (num_found < 4):
-        print("Could not locate a dialog with the same IDD in the target. You must create an empty dialog in the target which can be used for overwriting with the copy/paste")
-    if (num_found == 3):
-        print("Could only locate 3/4 of the pasting sections. This could be beacuse some dialogs do not possess a DLGINIT section. ")
-    assert num_found >=3
+    if (not found_dlginit):
+        print("WARNING: Could not find DLGINIT in destination file. Skipping pasting section. If relying on DLGINIT then ensure you fix this!")
+    assert_val = num_found == 4 or (num_found == 3 and not found_dlginit)
+    if (not assert_val):
+        print("Could not locate all relevent sections in destination file to paste. Ensure you have created a blank dialog with the same IDD as the dialog you are copying as this program requires you do that so it knows where to paste the new dialog")
+    assert assert_val
 
     with open(rc_file, 'w') as f:
         for line in contents:
