@@ -11,10 +11,10 @@ def main():
 
     #print(dest_resource_names) #works
 
-    (dialogbox_lines, margins_lines, dlginit_lines, layout_lines) = extract_sections(args)
+    (dialogbox_lines, margins_lines, dlginit_lines) = extract_sections(args)
     
     if (args.dest_h is not None):
-        src_symbols = extract_section_symbols(dialogbox_lines, margins_lines, dlginit_lines, layout_lines) #get all the new symbols to be added for the dialog
+        src_symbols = extract_section_symbols(dialogbox_lines, margins_lines, dlginit_lines) #get all the new symbols to be added for the dialog
         src_symbols.add(args.dlg) #the symbol for the actual dlg itself has to be added
         
         dest_symbols = extract_all_resources(args.dest_h) #get all existing resources in the target for pasting resource file
@@ -28,7 +28,7 @@ def main():
 
 
     if (args.dest_rc is not None):
-        inject_new_dialog(args.dest_rc, args.dlg, dialogbox_lines, margins_lines, dlginit_lines, layout_lines)
+        inject_new_dialog(args.dest_rc, args.dlg, dialogbox_lines, margins_lines, dlginit_lines)
     else:
         print("Skipping inserting dialog. Only symbols will be copied over.")
     
@@ -60,7 +60,7 @@ def extract_sections(args):
     dialogbox_lines = []
     margins_lines = []
     dlginit_lines = []
-    layout_lines = []
+    #layout_lines = []
 
     found_dlginit = False
     num_found = 0
@@ -74,7 +74,7 @@ def extract_sections(args):
 
         if (mode == NONE):
             vals = line.split(' ')
-            if vals[0] == args.dlg and vals[1] == "DIALOGEX":
+            if vals[0] == args.dlg and (vals[1] == "DIALOGEX" or vals[1] == "DIALOG"):
                 mode = DIALOGBOX #note no break, it will run the next line
                 #print("Starting Dlgbox")
             elif line == (MARGIN_TAB + args.dlg + ", DIALOG"):
@@ -84,8 +84,8 @@ def extract_sections(args):
                 mode = DLGINIT
                 found_dlginit = True
                 #print("Starting dlginit")
-            elif vals[0] == args.dlg and vals[1] == "AFX_DIALOG_LAYOUT":
-                mode = LAYOUT
+            #elif vals[0] == args.dlg and vals[1] == "AFX_DIALOG_LAYOUT":
+            #    mode = LAYOUT
                 #print("Starting layout")
             if (mode != NONE):
                 num_found = num_found+1
@@ -108,18 +108,18 @@ def extract_sections(args):
                 mode = NONE
                 print("Found dlginit")
                 continue
-        elif (mode == LAYOUT):
-            layout_lines.append(line)
-            if (line == "END"):
-                mode = NONE
-                print("Found layout")
-                continue
+        #elif (mode == LAYOUT):
+        #    layout_lines.append(line)
+        #    if (line == "END"):
+        #        mode = NONE
+        #        print("Found layout")
+        #        continue
 
-    assert_val = num_found == 4 or (num_found == 3 and not found_dlginit)
+    assert_val = num_found == 3 or (num_found == 2 and not found_dlginit)
     if (not assert_val):
         print("Could not locate all required sections in source file for the dialog! Ensure the target dialog actually exists! Aborting program!")
     assert assert_val
-    return (dialogbox_lines, margins_lines, dlginit_lines, layout_lines)
+    return (dialogbox_lines, margins_lines, dlginit_lines)
 
 def extract_section_symbols(*sections):
     symbols = set()
@@ -178,13 +178,13 @@ def inject_new_symbols(resource_file, symbols):
         contents = "".join(contents)
         f.write(contents)
 
-def inject_new_dialog(rc_file, dlg, dialogbox_lines, margins_lines, dlginit_lines, layout_lines):
+def inject_new_dialog(rc_file, dlg, dialogbox_lines, margins_lines, dlginit_lines):
     print("\nAttempting to inject dialog")
     NONE = 0
     DIALOGBOX = 1
     MARGINS = 2
     DLGINIT = 3
-    LAYOUT = 4
+    #LAYOUT = 4
 
     #other constants
     MARGIN_TAB = "    "
@@ -203,7 +203,7 @@ def inject_new_dialog(rc_file, dlg, dialogbox_lines, margins_lines, dlginit_line
 
         if (mode == NONE):
             vals = line.split(' ')
-            if vals[0] == dlg and vals[1] == "DIALOGEX":
+            if vals[0] == dlg and (vals[1] == "DIALOGEX" or vals[1] == "DIALOG"):
                 mode = DIALOGBOX #note no break, it will run the next line
                 #print("Starting Dlgbox")
             elif line == (MARGIN_TAB + dlg + ", DIALOG"):
@@ -213,8 +213,8 @@ def inject_new_dialog(rc_file, dlg, dialogbox_lines, margins_lines, dlginit_line
                 mode = DLGINIT
                 found_dlginit = True
                 #print("Starting dlginit")
-            elif vals[0] == dlg and vals[1] == "AFX_DIALOG_LAYOUT":
-                mode = LAYOUT
+           # elif vals[0] == dlg and vals[1] == "AFX_DIALOG_LAYOUT":
+           #     mode = LAYOUT
                 #print("Starting layout")
             if (mode != NONE):
                 num_found = num_found+1
@@ -240,15 +240,15 @@ def inject_new_dialog(rc_file, dlg, dialogbox_lines, margins_lines, dlginit_line
                 contents.extend(dlginit_lines)
                 print("Pasted dlginit")
                 continue
-        elif (mode == LAYOUT):
-            if (line == "END"):
-                mode = NONE
-                contents.extend(layout_lines)
-                print("Pasted layout")
-                continue
+        #elif (mode == LAYOUT):
+        #    if (line == "END"):
+        #        mode = NONE
+        #        contents.extend(layout_lines)
+        #        print("Pasted layout")
+        #        continue
     if (not found_dlginit):
         print("WARNING: Could not find DLGINIT in destination file. Skipping pasting section. If relying on DLGINIT then ensure you fix this!")
-    assert_val = num_found == 4 or (num_found == 3 and not found_dlginit)
+    assert_val = num_found == 3 or (num_found == 2 and not found_dlginit)
     if (not assert_val):
         print("Could not locate all relevent sections in destination file to paste. Ensure you have created a blank dialog with the same IDD as the dialog you are copying as this program requires you do that so it knows where to paste the new dialog")
     assert assert_val
