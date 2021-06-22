@@ -26,6 +26,7 @@ def main():
     else:
         print("Skipping inserting symbols since no resource.h file specified. The inserted dialog will not have valid symbols and may not work!")
 
+
     if (args.dest_rc is not None):
         inject_new_dialog(args.dest_rc, args.dlg, dialogbox_lines, margins_lines, dlginit_lines, layout_lines)
     else:
